@@ -4,7 +4,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from taskflow import add_task, complete_task, delete_task, list_tasks, open_database
+from taskflow import add_task, complete_task, delete_task, edit_task, list_tasks, open_database
 
 
 def positive_id(value):
@@ -28,6 +28,9 @@ def build_parser():
     commands = parser.add_subparsers(dest="command", required=True)
     add = commands.add_parser("add", help="Adicionar uma tarefa.")
     add.add_argument("title", help="Título entre aspas.")
+    edit = commands.add_parser("edit", help="Editar o título de uma tarefa.")
+    edit.add_argument("id", type=positive_id)
+    edit.add_argument("title", help="Novo título entre aspas.")
     listing = commands.add_parser("list", help="Listar tarefas por ID.")
     listing.add_argument("--status", choices=("all", "pending", "done"), default="all")
     for name, help_text in (("done", "Concluir uma tarefa."), ("delete", "Excluir uma tarefa.")):
@@ -43,6 +46,9 @@ def main(argv=None):
             if args.command == "add":
                 task_id = add_task(connection, args.title)
                 print(f"Tarefa {task_id} adicionada.")
+            elif args.command == "edit":
+                edit_task(connection, args.id, args.title)
+                print(f"Tarefa {args.id} atualizada.")
             elif args.command == "list":
                 done = {"all": None, "pending": False, "done": True}[args.status]
                 tasks = list_tasks(connection, done)

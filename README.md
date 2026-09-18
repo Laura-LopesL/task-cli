@@ -1,6 +1,6 @@
 # TaskFlow — tarefas no terminal
 
-Primeira etapa da evolução do `task-cli`: adicionar, listar, concluir e excluir
+Gerenciador de tarefas em evolução a partir do `task-cli`: adicionar, editar, listar, concluir e excluir
 tarefas, com os dados salvos em um banco SQLite local.
 
 ## Como executar
@@ -23,9 +23,10 @@ Em um banco novo, a saída da listagem será:
 2 [ ] Revisar currículo
 ```
 
-Use o ID mostrado na listagem para concluir ou excluir uma tarefa:
+Use o ID mostrado na listagem para editar, concluir ou excluir uma tarefa:
 
 ```bash
+python app.py edit 1 "Estudar Python e SQL"
 python app.py done 1
 python app.py list --status pending
 python app.py list --status done
@@ -35,7 +36,9 @@ python app.py delete 2
 `[ ]` indica uma tarefa pendente e `[x]` uma tarefa concluída. `list` mostra
 todas por padrão. A exclusão é permanente e não pede confirmação. Os IDs
 excluídos não são reutilizados. Marcar novamente uma tarefa concluída mantém
-seu estado.
+seu estado. O comando `edit` altera somente o título: o ID e o estado de conclusão
+são preservados. Um título vazio ou um ID inexistente gera uma mensagem de erro
+e mantém as tarefas existentes.
 
 No Windows, se `python` não for reconhecido, use `py` no lugar de `python`.
 Para consultar os comandos: `python app.py --help`.
@@ -79,11 +82,11 @@ Na pasta do projeto:
 python -m unittest discover -s tests -v
 ```
 
-Os testes cobrem persistência, filtros, conclusão, exclusão, IDs, títulos e erros
+Os 19 testes cobrem persistência, edição, filtros, conclusão, exclusão, IDs, títulos e erros
 de acesso ao banco. Eles não usam nem alteram o seu `tasks.db`.
 
 ## Próximas etapas
 
 Esta versão é uma ferramenta local para uma pessoa, sem interface web ou API.
-O plano é adicionar edição de tarefas e projetos, depois uma API com FastAPI
+O plano é adicionar projetos, depois uma API com FastAPI
 e validação com Pydantic. PostgreSQL e Docker ficam para etapas posteriores.

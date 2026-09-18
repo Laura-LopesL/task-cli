@@ -22,13 +22,28 @@ def open_database(path):
         connection.close()
 
 
-def add_task(connection, title):
+def clean_title(title):
     title = " ".join(title.split())
     if not title:
         raise ValueError("O título da tarefa não pode ficar vazio.")
+    return title
+
+
+def add_task(connection, title):
+    title = clean_title(title)
     with connection:
         cursor = connection.execute("INSERT INTO tasks (title) VALUES (?)", (title,))
     return cursor.lastrowid
+
+
+def edit_task(connection, task_id, title):
+    title = clean_title(title)
+    with connection:
+        cursor = connection.execute(
+            "UPDATE tasks SET title = ? WHERE id = ?", (title, task_id)
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Tarefa {task_id} não encontrada.")
 
 
 def list_tasks(connection, done=None):

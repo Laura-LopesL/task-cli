@@ -41,6 +41,48 @@ class TaskFlowTests(unittest.TestCase):
         self.assertEqual(self.cli("list", "--status", "done").stdout.strip(), "1 [x] Ler")
         self.assertEqual(self.cli("list", "--status", "pending").stdout.strip(), "2 [ ] Praticar")
 
+    def test_edit_persists_with_same_id_and_only_changes_selected_task(self):
+        self.cli("add", "Estudar")
+        self.cli("add", "Outra tarefa")
+        self.assertIn("Tarefa 1 atualizada.", self.cli("edit", "1", "  Estudar   SQL  ").stdout)
+        self.assertEqual(
+            self.cli("list").stdout.strip(),
+            "1 [ ] Estudar SQL\n2 [ ] Outra tarefa",
+        )
+
+    def test_edit_completed_task_keeps_completed_status(self):
+        self.cli("add", "Ler")
+        self.cli("done", "1")
+        self.cli("edit", "1", "Ler documentação")
+        self.assertEqual(
+            self.cli("list", "--status", "done").stdout.strip(), "1 [x] Ler documentação"
+        )
+
+    def test_edit_rejects_blank_title_and_preserves_old_title(self):
+        self.cli("add", "Manter título")
+        for title in ("", " \t\n "):
+            with self.subTest(title=title):
+                error = self.cli("edit", "1", title, expected=1).stderr
+                self.assertIn("não pode ficar vazio", error)
+        self.assertEqual(self.cli("list").stdout.strip(), "1 [ ] Manter título")
+
+    def test_edit_missing_task_does_not_create_or_change_tasks(self):
+        self.cli("add", "Manter")
+        self.assertIn("não encontrada", self.cli("edit", "99", "Novo", expected=1).stderr)
+        self.assertEqual(self.cli("list").stdout.strip(), "1 [ ] Manter")
+
+    def test_edit_sql_like_title_stays_text(self):
+        self.cli("add", "Inicial")
+        self.cli("add", "Outra")
+        title = "Estudar 'SQL'); DROP TABLE tasks; --"
+        self.cli("edit", "1", title)
+        self.assertEqual(self.cli("list").stdout.strip(), f"1 [ ] {title}\n2 [ ] Outra")
+
+    def test_edit_rejects_invalid_ids(self):
+        for task_id in ("0", "-1", "abc", "1.5", "9223372036854775808"):
+            with self.subTest(task_id=task_id):
+                self.cli("edit", task_id, "Novo", expected=2)
+
     def test_completing_twice_keeps_one_completed_task(self):
         self.cli("add", "Ler")
         self.cli("done", "1")
