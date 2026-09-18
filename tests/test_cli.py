@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -147,6 +148,129 @@ class TaskFlowTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((copied / "tasks.db").exists())
         self.assertFalse((self.directory / "tasks.db").exists())
+
+    def test_projects_persist_and_normalize_names(self):
+        self.assertIn("Nenhum projeto", self.cli("project", "list").stdout)
+        self.cli("project", "add", "  Meu   portfólio  ")
+        self.cli("project", "add", "Estudos")
+        self.assertEqual(
+            self.cli("project", "list").stdout.strip(), "1 Meu portfólio\n2 Estudos"
+        )
+
+    def test_blank_and_duplicate_project_names_are_rejected(self):
+        self.cli("project", "add", "Estudos")
+        for name in ("", " \t\n "):
+            with self.subTest(name=name):
+                self.assertIn("não pode ficar vazio", self.cli("project", "add", name, expected=1).stderr)
+        self.assertIn("já existe", self.cli("project", "add", "  Estudos  ", expected=1).stderr)
+        self.assertEqual(self.cli("project", "list").stdout.strip(), "1 Estudos")
+
+    def test_project_and_status_filters_combine_without_hiding_unassigned_tasks(self):
+        self.cli("project", "add", "Estudos")
+        self.cli("project", "add", "Trabalho")
+        self.cli("add", "Ler", "--project", " Estudos ")
+        self.cli("add", "Praticar", "--project", "Estudos")
+        self.cli("add", "Reunião", "--project", "Trabalho")
+        self.cli("add", "Comprar pão")
+        self.cli("done", "1")
+        self.assertEqual(
+            self.cli("list", "--project", "Estudos", "--status", "done").stdout.strip(),
+            "1 [x] Ler [Projeto: Estudos]",
+        )
+        self.assertEqual(
+            self.cli("list", "--project", "Estudos", "--status", "pending").stdout.strip(),
+            "2 [ ] Praticar [Projeto: Estudos]",
+        )
+        self.assertEqual(self.cli("list", "--no-project").stdout.strip(), "4 [ ] Comprar pão")
+        self.assertIn("Nenhuma tarefa", self.cli("list", "--no-project", "--status", "done").stdout)
+        self.assertEqual(len(self.cli("list").stdout.splitlines()), 4)
+
+    def test_unknown_project_does_not_create_or_move_tasks(self):
+        self.cli("add", "Manter")
+        for command in (("add", "Nova"), ("move", "1"), ("list",)):
+            with self.subTest(command=command):
+                self.assertIn(
+                    "não encontrado", self.cli(*command, "--project", "Ausente", expected=1).stderr
+                )
+        self.assertEqual(self.cli("list").stdout.strip(), "1 [ ] Manter")
+        self.assertIn("Nenhum projeto", self.cli("project", "list").stdout)
+
+    def test_moving_and_unassigning_keeps_task_id_title_and_status(self):
+        self.cli("project", "add", "Estudos")
+        self.cli("project", "add", "Trabalho")
+        self.cli("add", "Ler", "--project", "Estudos")
+        self.cli("add", "Outra")
+        self.cli("done", "1")
+        self.cli("move", "1", "--project", "Trabalho")
+        self.assertEqual(
+            self.cli("list").stdout.strip(), "1 [x] Ler [Projeto: Trabalho]\n2 [ ] Outra"
+        )
+        self.assertIn("Nenhuma tarefa", self.cli("list", "--project", "Estudos").stdout)
+        self.cli("move", "1", "--no-project")
+        self.assertEqual(self.cli("list").stdout.strip(), "1 [x] Ler\n2 [ ] Outra")
+        self.assertIn("não encontrada", self.cli("move", "99", "--project", "Estudos", expected=1).stderr)
+        self.assertEqual(self.cli("list").stdout.strip(), "1 [x] Ler\n2 [ ] Outra")
+
+    def test_project_arguments_reject_ambiguous_filters_and_invalid_task_ids(self):
+        for task_id in ("0", "-1", "abc", "9223372036854775808"):
+            with self.subTest(task_id=task_id):
+                self.cli("move", task_id, "--no-project", expected=2)
+        for command in (("list",), ("move", "1")):
+            with self.subTest(command=command):
+                self.cli(*command, "--project", "Estudos", "--no-project", expected=2)
+        self.cli("move", "1", expected=2)
+        self.cli("project", expected=2)
+
+    def test_sql_like_project_name_stays_text(self):
+        name = "Ler 'SQL'); DROP TABLE tasks; --"
+        self.cli("project", "add", name)
+        self.cli("add", "Praticar", "--project", name)
+        self.cli("project", "add", "Outro")
+        self.assertEqual(
+            self.cli("list", "--project", name).stdout.strip(), f"1 [ ] Praticar [Projeto: {name}]"
+        )
+        self.assertEqual(self.cli("project", "list").stdout.strip(), f"1 {name}\n2 Outro")
+
+    def test_old_database_migrates_without_losing_tasks_or_reusing_deleted_ids(self):
+        connection = sqlite3.connect(self.database)
+        try:
+            with connection:
+                connection.execute("""CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+                    done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1))
+                )""")
+                connection.executemany(
+                    "INSERT INTO tasks (id, title, done) VALUES (?, ?, ?)",
+                    [(3, "Concluída", 1), (5, "Pendente", 0), (9, "Excluída", 0)],
+                )
+                connection.execute("DELETE FROM tasks WHERE id = 9")
+        finally:
+            connection.close()
+        for _ in range(2):
+            self.assertEqual(self.cli("list").stdout.strip(), "3 [x] Concluída\n5 [ ] Pendente")
+        self.cli("project", "add", "Estudos")
+        self.cli("move", "3", "--project", "Estudos")
+        self.assertIn("Tarefa 10 adicionada", self.cli("add", "Nova", "--project", "Estudos").stdout)
+        self.assertEqual(
+            self.cli("list").stdout.strip(),
+            "3 [x] Concluída [Projeto: Estudos]\n5 [ ] Pendente\n10 [ ] Nova [Projeto: Estudos]",
+        )
+
+    def test_edit_and_delete_keep_project_and_other_tasks(self):
+        self.cli("project", "add", "Estudos")
+        self.cli("add", "Ler", "--project", "Estudos")
+        self.cli("add", "Praticar", "--project", "Estudos")
+        self.cli("edit", "1", "Ler SQL")
+        self.assertEqual(
+            self.cli("list", "--project", "Estudos").stdout.strip(),
+            "1 [ ] Ler SQL [Projeto: Estudos]\n2 [ ] Praticar [Projeto: Estudos]",
+        )
+        self.cli("delete", "1")
+        self.assertEqual(
+            self.cli("list", "--project", "Estudos").stdout.strip(), "2 [ ] Praticar [Projeto: Estudos]"
+        )
+        self.assertEqual(self.cli("project", "list").stdout.strip(), "1 Estudos")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 # TaskFlow — tarefas no terminal
 
 Gerenciador de tarefas em evolução a partir do `task-cli`: adicionar, editar, listar, concluir e excluir
-tarefas, com os dados salvos em um banco SQLite local.
+tarefas, com os dados salvos em um banco SQLite local. As tarefas podem ser
+organizadas por projetos, como Estudos ou Portfólio.
 
 ## Como executar
 
@@ -43,6 +44,44 @@ e mantém as tarefas existentes.
 No Windows, se `python` não for reconhecido, use `py` no lugar de `python`.
 Para consultar os comandos: `python app.py --help`.
 
+## Projetos
+
+Crie um projeto antes de associar tarefas a ele:
+
+```bash
+python app.py project add "Estudos"
+python app.py project list
+python app.py add "Praticar SQL" --project "Estudos"
+python app.py list --project "Estudos"
+python app.py list --project "Estudos" --status pending
+```
+
+As tarefas vinculadas mostram o nome do projeto ao final da linha:
+
+```text
+3 [ ] Praticar SQL [Projeto: Estudos]
+```
+
+O ID varia conforme as tarefas já criadas. Use o ID exibido por `list` para
+mover uma tarefa existente; por exemplo, para a tarefa 3:
+
+```bash
+python app.py move 3 --project "Estudos"
+python app.py move 3 --no-project
+python app.py list --no-project
+```
+
+`move` muda somente o projeto; o título, o ID e a conclusão são preservados.
+`--no-project` remove apenas o vínculo, sem excluir a tarefa. Adicionar sem
+`--project` continua permitido, e `list` sem filtro mostra todas as tarefas.
+Os filtros de projeto e de conclusão podem ser combinados.
+
+Nomes vazios ou repetidos são rejeitados. Espaços extras são normalizados;
+maiúsculas e acentos são significativos: `Estudos` e `estudos` são nomes
+diferentes. Use o nome mostrado por `project list`. Um nome inexistente gera
+erro sem adicionar ou mover tarefas. Esta etapa permite criar e listar projetos;
+renomear e excluir projetos ainda não estão disponíveis.
+
 ## Onde os dados ficam
 
 O arquivo `tasks.db` é criado ao lado de `app.py`. Ele mantém as tarefas entre
@@ -58,10 +97,15 @@ A pasta escolhida precisa existir e permitir escrita. Se o banco não puder ser
 aberto ou estiver inválido, o programa informa o erro e encerra; ele não apaga
 o arquivo para tentar recuperar os dados.
 
+Ao abrir um banco das etapas anteriores, esta versão adiciona uma tabela de
+projetos e um vínculo opcional em cada tarefa. As tarefas existentes ficam sem
+projeto e mantêm seu ID, título e conclusão. Não é necessário apagar o banco.
+Essa atualização do esquema acontece em uma transação, antes do comando solicitado.
+
 ## Organização e decisões
 
 - `app.py`: interpreta os comandos com `argparse` e apresenta mensagens.
-- `taskflow.py`: valida títulos e executa as operações no SQLite.
+- `taskflow.py`: valida títulos e projetos e executa as operações no SQLite.
 - `tests/test_cli.py`: testa comandos em processos separados, com bancos temporários.
 
 SQLite permite salvar e consultar tarefas sem configurar um servidor. A
@@ -69,6 +113,10 @@ separação em dois módulos permite reaproveitar as operações em uma futura A
 As consultas usam parâmetros (`?`), mantendo os títulos separados do código SQL.
 As alterações são feitas em transações: o SQLite confirma a operação ou a desfaz
 se ocorrer uma falha.
+
+Cada tarefa pode pertencer a um projeto. Uma chave estrangeira liga a tarefa
+ao projeto, e sua verificação é habilitada em cada conexão. A listagem usa
+`LEFT JOIN` para incluir também tarefas sem projeto.
 
 Títulos vazios são rejeitados; espaços extras e quebras de linha são normalizados.
 IDs precisam ser inteiros positivos e identificar uma tarefa existente. Erros
@@ -82,11 +130,13 @@ Na pasta do projeto:
 python -m unittest discover -s tests -v
 ```
 
-Os 19 testes cobrem persistência, edição, filtros, conclusão, exclusão, IDs, títulos e erros
-de acesso ao banco. Eles não usam nem alteram o seu `tasks.db`.
+Os 28 testes cobrem persistência, edição, filtros, conclusão, exclusão, IDs, títulos,
+projetos, movimentação de tarefas e erros de acesso ao banco. Também verificam
+a atualização de um banco antigo, preservando tarefas e a sequência de IDs.
+Eles não usam nem alteram o seu `tasks.db`.
 
 ## Próximas etapas
 
 Esta versão é uma ferramenta local para uma pessoa, sem interface web ou API.
-O plano é adicionar projetos, depois uma API com FastAPI
-e validação com Pydantic. PostgreSQL e Docker ficam para etapas posteriores.
+O próximo passo planejado é uma API com FastAPI e validação com Pydantic.
+PostgreSQL e Docker ficam para etapas posteriores.
